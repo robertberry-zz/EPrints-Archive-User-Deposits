@@ -1,0 +1,82 @@
+#!/usr/bin/env perl
+# #!/opt/csw/bin/perl -w -I/eprints/eprints3/perl_lib
+
+use FindBin;
+use lib "$FindBin::Bin/../perl_lib";
+use EPrints;
+use strict;
+use autodie;
+use Getopt::Long;
+
+# Minimum number of CLI arguments
+use constant MIN_ARGUMENTS => 2;
+
+# Error codes
+use constant ERROR_USAGE => 1;
+use constant ERROR_BAD_SESSION => 2;
+use constant ERROR_NO_USER => 3;
+
+my $verbose = 0;
+my $eprints = EPrints->new;
+
+sub usage {
+    print "$0 <repository_id> <username> [--verbose]\n";
+    exit ERROR_USAGE;
+}
+
+# Prints its argument if verbose flag is set
+sub verbose_print {
+    print $_[0] if $verbose;
+}
+
+# Prints its argument with a new line at the end if verbose flag is set
+sub verbose_say {
+    verbose_print("$_[0]\n");
+}
+
+sub main {
+    GetOptions(
+        'verbose+' => \$verbose
+    ) || usage();
+
+    usage() if scalar @ARGV < MIN_ARGUMENTS;
+
+    my $repository = $eprints->repository($ARGV[0],
+        noise => 1 + $verbose
+    );
+
+    unless (defined $repository) {
+        print STDERR "Unable to load repository '$ARGV[0]'.\n";
+        exit ERROR_BAD_SESSION;
+    }
+
+    my $user = $repository->user_by_username($ARGV[1]);
+
+    unless (defined $user) {
+        print STDERR "Unable to find user '$ARGV[1]'.\n";
+        exit ERROR_NO_USER;
+    }
+
+    my $prints = new_prints_for_user($user);
+    $prints->map(sub { archive_print($_[2]); });
+}
+
+# Moves the given print to the archive
+sub archive_print {
+    my $eprint = shift;
+
+    verbose_say("Archiving print " . $eprint->get_value("eprintid"));
+    $eprint->set_value("eprint_status", "archive");
+    $eprint->commit;
+}
+
+# Returns a list of EPrints that belong to the user and have not yet been archived
+sub new_prints_for_user {
+    my $user = shift;
+
+    $user->editable_eprints_list(
+        eprint_status => "inbox"
+    );
+}
+
+main unless caller;
